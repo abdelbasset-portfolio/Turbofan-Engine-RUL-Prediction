@@ -17,7 +17,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# 2. Clean Industrial Enterprise CSS (No Emojis, Crisp Typography)
+# 2. Clean Industrial Enterprise CSS with Custom Hover Tooltips
 st.markdown("""
 <style>
     .main {
@@ -28,6 +28,10 @@ st.markdown("""
         border: 1px solid #1f2937;
         padding: 16px 20px;
         border-radius: 8px;
+        transition: border-color 0.2s ease;
+    }
+    .stMetric:hover {
+        border-color: #0284c7;
     }
     .header-container {
         background-color: #111827;
@@ -64,6 +68,7 @@ st.markdown("""
         font-family: monospace;
         font-size: 13px;
         text-align: right;
+        cursor: help;
     }
     .status-banner {
         padding: 16px;
@@ -74,6 +79,18 @@ st.markdown("""
         letter-spacing: 0.5px;
         margin-top: 12px;
         font-family: monospace;
+        cursor: help;
+    }
+    .section-header {
+        color: #e5e7eb;
+        font-size: 14px;
+        font-weight: 600;
+        letter-spacing: 0.8px;
+        margin-bottom: 8px;
+        display: inline-block;
+        border-bottom: 1px dashed #4b5563;
+        padding-bottom: 3px;
+        cursor: help;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -143,7 +160,7 @@ def load_resources():
 
 df, features, scaler, model = load_resources()
 
-# 5. Sidebar Controls
+# 5. Sidebar Controls with Interactive Tooltips
 with st.sidebar:
     st.markdown("### SYSTEM PARAMETERS")
     st.markdown("---")
@@ -152,7 +169,8 @@ with st.sidebar:
     selected_engine = st.selectbox(
         "Engine Unit ID",
         available_units,
-        format_func=lambda x: f"UNIT-{x:03d}"
+        format_func=lambda x: f"UNIT-{x:03d}",
+        help="Select an independent turbofan engine unit from the NASA fleet (100 units total). Each unit has a unique lifespan and degradation trajectory."
     )
 
     unit_data = df[df['unit_nr'] == selected_engine].copy().sort_values('time_cycles')
@@ -170,12 +188,12 @@ with st.sidebar:
     st.markdown("### TIMELINE SIMULATION")
     
     b1, b2, b3 = st.columns(3)
-    if b1.button("-10 Cyc"):
+    if b1.button("-10 Cyc", help="Rewind simulation backward by 10 flight cycles to inspect earlier engine health."):
         st.session_state.current_cycle = max(50, st.session_state.current_cycle - 10)
         st.session_state.is_playing = False
-    if b2.button("Play" if not st.session_state.is_playing else "Pause"):
+    if b2.button("Play" if not st.session_state.is_playing else "Pause", help="Start or pause automatic real-time flight simulation across the engine's lifespan."):
         st.session_state.is_playing = not st.session_state.is_playing
-    if b3.button("+10 Cyc"):
+    if b3.button("+10 Cyc", help="Fast-forward simulation by 10 flight cycles toward end-of-life."):
         st.session_state.current_cycle = min(max_cycle, st.session_state.current_cycle + 10)
         st.session_state.is_playing = False
 
@@ -184,14 +202,16 @@ with st.sidebar:
         min_value=50,
         max_value=max_cycle,
         value=st.session_state.current_cycle,
-        step=1
+        step=1,
+        help="Drag to inspect the engine at any specific flight cycle. Minimum is 50 because the LSTM neural network requires a 50-cycle historical window to predict."
     )
     st.session_state.current_cycle = selected_cycle
 
     sim_speed = st.select_slider(
         "Simulation Step Interval (sec)",
         options=[0.5, 1.0, 1.5, 2.0],
-        value=1.0
+        value=1.0,
+        help="Controls how many seconds the system waits before advancing to the next flight cycle during Live Play mode."
     )
 
     st.markdown("---")
@@ -208,24 +228,25 @@ with st.sidebar:
         "Active Sensors",
         options=list(sensor_labels.keys()),
         default=['s_3', 's_4', 's_11'],
-        format_func=lambda x: sensor_labels[x]
+        format_func=lambda x: sensor_labels[x],
+        help="Choose which physical engine sensors to plot in real time. Rising temperature and pressure trends indicate internal component wear."
     )
 
     st.markdown("---")
     st.caption("ARCH: 2-Layer PyTorch LSTM | SEQ: 50 | DATA: NASA C-MAPSS FD001")
 
-# 6. Header Section
+# 6. Header Section with Hover Explanations
 current_row = unit_data[unit_data['time_cycles'] == selected_cycle].iloc[0]
 current_time_str = current_row['timestamp'].strftime("%Y-%m-%d %H:%M UTC")
 mode_label = "MODE: LIVE STREAM" if st.session_state.is_playing else "MODE: MANUAL INSPECTION"
 
 st.markdown(f"""
 <div class="header-container">
-    <div>
+    <div title="Prognostics and Health Management (PHM) system predicting when a jet engine will fail before an actual breakdown occurs.">
         <p class="header-title">AeroPredict | Turbofan Prognostics & Health Management</p>
         <p class="header-subtitle">ASSET: ENGINE UNIT-{selected_engine:03d} | MODEL: PYTORCH LSTM | DATASET: NASA FD001</p>
     </div>
-    <div class="telemetry-badge">
+    <div class="telemetry-badge" title="Simulated flight log timestamp (assuming 1 flight cycle every 6 hours) and current playback status.">
         {mode_label}<br>SIMULATED LOG: {current_time_str}
     </div>
 </div>
@@ -247,12 +268,31 @@ error_diff = predicted_rul - actual_rul
 health_percentage = min(100, int((predicted_rul / 125) * 100))
 est_failure_date = (current_row['timestamp'] + timedelta(hours=6 * predicted_rul)).strftime("%Y-%m-%d %H:%M")
 
-# 8. KPI Metrics Row
+# 8. KPI Metrics Row with Native Hover Tooltips
 col1, col2, col3, col4 = st.columns(4)
-col1.metric("Operational Cycle", f"{selected_cycle} / {max_cycle}", f"{max_cycle - selected_cycle} cycles remaining")
-col2.metric("Predicted RUL", f"{predicted_rul} Cycles", f"{error_diff:+d} vs Ground Truth")
-col3.metric("Ground Truth RUL", f"{actual_rul} Cycles", f"Est. EOL: {est_failure_date}")
-col4.metric("Health Index", f"{health_percentage}%")
+col1.metric(
+    "Operational Cycle",
+    f"{selected_cycle} / {max_cycle}",
+    f"{max_cycle - selected_cycle} cycles remaining",
+    help="Current completed flight cycle compared to the total lifespan of this engine unit."
+)
+col2.metric(
+    "Predicted RUL",
+    f"{predicted_rul} Cycles",
+    f"{error_diff:+d} vs Ground Truth",
+    help="Remaining Useful Life estimated by the 2-layer LSTM model based on the last 50 cycles of sensor readings."
+)
+col3.metric(
+    "Ground Truth RUL",
+    f"{actual_rul} Cycles",
+    f"Est. EOL: {est_failure_date}",
+    help="Actual remaining cycles before engine failure recorded in the NASA dataset, alongside the estimated End-of-Life (EOL) date."
+)
+col4.metric(
+    "Health Index",
+    f"{health_percentage}%",
+    help="Normalized engine health score (0% to 100%) scaled against the 125-cycle healthy baseline cap."
+)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
@@ -260,7 +300,10 @@ st.markdown("<br>", unsafe_allow_html=True)
 left_col, right_col = st.columns([1.1, 2])
 
 with left_col:
-    st.markdown("##### REMAINING USEFUL LIFE GAUGE")
+    st.markdown(
+        '<span class="section-header" title="Visual cockpit dial showing predicted remaining cycles. Green (50-130): Healthy | Amber (20-50): Plan Maintenance | Red (0-20): Critical Risk.">REMAINING USEFUL LIFE GAUGE</span>',
+        unsafe_allow_html=True
+    )
     
     fig_gauge = go.Figure(go.Indicator(
         mode="gauge+number",
@@ -294,28 +337,31 @@ with left_col:
     )
     st.plotly_chart(fig_gauge, use_container_width=True)
 
-    # Clean Industrial Status Banner
+    # Clean Industrial Status Banner with Hover Explanation
     if predicted_rul < 20:
         st.markdown("""
-        <div class="status-banner" style="background-color: rgba(220, 38, 38, 0.15); border: 1px solid #dc2626; color: #fca5a5;">
+        <div class="status-banner" title="Triggered when Predicted RUL drops below 20 cycles. Indicates imminent mechanical failure risk." style="background-color: rgba(220, 38, 38, 0.15); border: 1px solid #dc2626; color: #fca5a5;">
             STATUS: CRITICAL<br><span style="font-size:12px; font-weight:normal;">Immediate maintenance required. Ground asset.</span>
         </div>
         """, unsafe_allow_html=True)
     elif predicted_rul < 50:
         st.markdown("""
-        <div class="status-banner" style="background-color: rgba(217, 119, 6, 0.15); border: 1px solid #d97706; color: #fcd34d;">
+        <div class="status-banner" title="Triggered when Predicted RUL is between 20 and 50 cycles. Early degradation signs are visible in sensor trends." style="background-color: rgba(217, 119, 6, 0.15); border: 1px solid #d97706; color: #fcd34d;">
             STATUS: ADVISORY WARNING<br><span style="font-size:12px; font-weight:normal;">Degradation trend confirmed. Schedule inspection.</span>
         </div>
         """, unsafe_allow_html=True)
     else:
         st.markdown("""
-        <div class="status-banner" style="background-color: rgba(5, 150, 105, 0.15); border: 1px solid #059669; color: #6ee7b7;">
+        <div class="status-banner" title="Triggered when Predicted RUL is above 50 cycles. Engine components are operating within safe thermal and pressure thresholds." style="background-color: rgba(5, 150, 105, 0.15); border: 1px solid #059669; color: #6ee7b7;">
             STATUS: NOMINAL<br><span style="font-size:12px; font-weight:normal;">All sensor parameters operating within limits.</span>
         </div>
         """, unsafe_allow_html=True)
 
 with right_col:
-    st.markdown(f"##### SENSOR DEGRADATION TELEMETRY — UNIT-{selected_engine:03d}")
+    st.markdown(
+        f'<span class="section-header" title="Interactive multi-sensor time-series plot. Hover over any data line to inspect exact sensor measurements at a specific flight cycle.">SENSOR DEGRADATION TELEMETRY — UNIT-{selected_engine:03d}</span>',
+        unsafe_allow_html=True
+    )
     
     history_data = unit_data[unit_data['time_cycles'] <= selected_cycle]
     
@@ -330,6 +376,7 @@ with right_col:
                     y=history_data[sensor],
                     mode='lines',
                     name=sensor_labels[sensor],
+                    hovertemplate="<b>Cycle %{x}</b><br>Reading: %{y:.2f}<extra></extra>",
                     line=dict(color=colors[idx % len(colors)], width=2),
                     fill='tozeroy',
                     fillcolor=f"rgba{tuple(int(colors[idx % len(colors)].lstrip('#')[i:i+2], 16) for i in (0, 2, 4)) + (0.06,)}"
@@ -344,6 +391,7 @@ with right_col:
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="#0f172a",
             font=dict(color="#9ca3af", size=12),
+            hovermode="x unified",
             showlegend=True,
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
             margin=dict(l=10, r=10, t=30, b=10)
