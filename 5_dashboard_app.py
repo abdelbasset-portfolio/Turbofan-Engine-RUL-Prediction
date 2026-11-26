@@ -115,7 +115,7 @@ st.markdown("""
         padding: 12px 14px;
         position: absolute;
         z-index: 9999;
-        bottom: 135%;
+        top: 135%;
         left: 0;
         border: 1px solid #0284c7;
         box-shadow: 0 10px 25px rgba(0, 0, 0, 0.6);
