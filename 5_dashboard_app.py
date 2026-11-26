@@ -17,7 +17,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# 2. Clean Industrial Enterprise CSS with Custom Hover Tooltips
+# 2. Industrial CSS with Instant Custom Hover Popovers
 st.markdown("""
 <style>
     .main {
@@ -68,7 +68,6 @@ st.markdown("""
         font-family: monospace;
         font-size: 13px;
         text-align: right;
-        cursor: help;
     }
     .status-banner {
         padding: 16px;
@@ -79,18 +78,56 @@ st.markdown("""
         letter-spacing: 0.5px;
         margin-top: 12px;
         font-family: monospace;
+    }
+
+    /* Instant Custom CSS Tooltip Styling */
+    .tooltip-wrapper {
+        position: relative;
+        display: inline-block;
         cursor: help;
     }
-    .section-header {
+    .tooltip-trigger {
         color: #e5e7eb;
         font-size: 14px;
         font-weight: 600;
         letter-spacing: 0.8px;
-        margin-bottom: 8px;
-        display: inline-block;
-        border-bottom: 1px dashed #4b5563;
+        border-bottom: 1px dashed #38bdf8;
         padding-bottom: 3px;
-        cursor: help;
+    }
+    .tooltip-info-tag {
+        background-color: #1e293b;
+        color: #38bdf8;
+        font-size: 11px;
+        padding: 2px 6px;
+        border-radius: 4px;
+        margin-left: 6px;
+        border: 1px solid #334155;
+        font-family: monospace;
+    }
+    .tooltip-box {
+        visibility: hidden;
+        opacity: 0;
+        width: 340px;
+        background-color: #1e293b;
+        color: #f1f5f9;
+        text-align: left;
+        border-radius: 8px;
+        padding: 12px 14px;
+        position: absolute;
+        z-index: 9999;
+        bottom: 135%;
+        left: 0;
+        border: 1px solid #0284c7;
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.6);
+        font-size: 12.5px;
+        line-height: 1.5;
+        font-weight: normal;
+        transition: opacity 0.15s ease-in-out;
+        pointer-events: none;
+    }
+    .tooltip-wrapper:hover .tooltip-box {
+        visibility: visible;
+        opacity: 1;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -160,7 +197,41 @@ def load_resources():
 
 df, features, scaler, model = load_resources()
 
-# 5. Sidebar Controls with Interactive Tooltips
+# Sensor Metadata Dictionary (Names, Units, and Physical Explanations)
+SENSOR_INFO = {
+    's_2': {
+        'name': 'S2 - LPC Outlet Temperature',
+        'unit': '°R',
+        'desc': 'Low-Pressure Compressor outlet temperature. Increases gradually as compressor efficiency drops due to blade fouling.'
+    },
+    's_3': {
+        'name': 'S3 - HPC Outlet Temperature',
+        'unit': '°R',
+        'desc': 'High-Pressure Compressor outlet temperature. Rising values indicate thermal stress and internal airflow degradation.'
+    },
+    's_4': {
+        'name': 'S4 - LPT Outlet Temperature',
+        'unit': '°R',
+        'desc': 'Low-Pressure Turbine exhaust gas temperature (EGT). One of the strongest indicators of turbine wear near end-of-life.'
+    },
+    's_11': {
+        'name': 'S11 - HPC Static Pressure',
+        'unit': 'psia',
+        'desc': 'Static pressure at High-Pressure Compressor outlet. Drops or fluctuates as internal seals wear out.'
+    },
+    's_14': {
+        'name': 'S14 - Core Rotor Speed',
+        'unit': 'rpm',
+        'desc': 'Physical rotational speed of the engine core shaft. Shifts as the control system compensates for power loss.'
+    },
+    's_15': {
+        'name': 'S15 - Bypass Ratio',
+        'unit': 'ratio',
+        'desc': 'Ratio of air bypassing the engine core to air passing through it. Changes reflect aerodynamic imbalance.'
+    }
+}
+
+# 5. Sidebar Controls
 with st.sidebar:
     st.markdown("### SYSTEM PARAMETERS")
     st.markdown("---")
@@ -170,13 +241,12 @@ with st.sidebar:
         "Engine Unit ID",
         available_units,
         format_func=lambda x: f"UNIT-{x:03d}",
-        help="Select an independent turbofan engine unit from the NASA fleet (100 units total). Each unit has a unique lifespan and degradation trajectory."
+        help="Select an independent turbofan engine unit from the NASA fleet (100 units total). Each unit has a unique operational lifespan."
     )
 
     unit_data = df[df['unit_nr'] == selected_engine].copy().sort_values('time_cycles')
     max_cycle = int(unit_data['time_cycles'].max())
 
-    # Map each operational cycle to a simulated flight schedule (1 flight every 6 hours)
     base_time = datetime.now().replace(minute=0, second=0, microsecond=0)
     unit_data['timestamp'] = [base_time - timedelta(hours=6 * (max_cycle - c)) for c in unit_data['time_cycles']]
 
@@ -188,12 +258,12 @@ with st.sidebar:
     st.markdown("### TIMELINE SIMULATION")
     
     b1, b2, b3 = st.columns(3)
-    if b1.button("-10 Cyc", help="Rewind simulation backward by 10 flight cycles to inspect earlier engine health."):
+    if b1.button("-10 Cyc", help="Step backward 10 flight cycles to inspect earlier healthy engine states."):
         st.session_state.current_cycle = max(50, st.session_state.current_cycle - 10)
         st.session_state.is_playing = False
-    if b2.button("Play" if not st.session_state.is_playing else "Pause", help="Start or pause automatic real-time flight simulation across the engine's lifespan."):
+    if b2.button("Play" if not st.session_state.is_playing else "Pause", help="Automatically advance flight cycles in real time to watch sensor degradation and RUL drop."):
         st.session_state.is_playing = not st.session_state.is_playing
-    if b3.button("+10 Cyc", help="Fast-forward simulation by 10 flight cycles toward end-of-life."):
+    if b3.button("+10 Cyc", help="Step forward 10 flight cycles toward engine end-of-life."):
         st.session_state.current_cycle = min(max_cycle, st.session_state.current_cycle + 10)
         st.session_state.is_playing = False
 
@@ -203,7 +273,7 @@ with st.sidebar:
         max_value=max_cycle,
         value=st.session_state.current_cycle,
         step=1,
-        help="Drag to inspect the engine at any specific flight cycle. Minimum is 50 because the LSTM neural network requires a 50-cycle historical window to predict."
+        help="Select a specific flight cycle. Starts at 50 because the LSTM network requires a 50-cycle sliding window of past readings."
     )
     st.session_state.current_cycle = selected_cycle
 
@@ -211,43 +281,50 @@ with st.sidebar:
         "Simulation Step Interval (sec)",
         options=[0.5, 1.0, 1.5, 2.0],
         value=1.0,
-        help="Controls how many seconds the system waits before advancing to the next flight cycle during Live Play mode."
+        help="Delay in seconds between each flight cycle when Live Play mode is active."
     )
 
     st.markdown("---")
     st.markdown("### TELEMETRY CHANNELS")
-    sensor_labels = {
-        's_2': 'S2 - LPC Outlet Temp',
-        's_3': 'S3 - HPC Outlet Temp',
-        's_4': 'S4 - LPT Outlet Temp',
-        's_11': 'S11 - HPC Static Pressure',
-        's_14': 'S14 - Core Rotor Speed',
-        's_15': 'S15 - Bypass Ratio'
-    }
     selected_sensors = st.multiselect(
         "Active Sensors",
-        options=list(sensor_labels.keys()),
+        options=list(SENSOR_INFO.keys()),
         default=['s_3', 's_4', 's_11'],
-        format_func=lambda x: sensor_labels[x],
-        help="Choose which physical engine sensors to plot in real time. Rising temperature and pressure trends indicate internal component wear."
+        format_func=lambda x: SENSOR_INFO[x]['name'],
+        help="Choose which physical engine sensors to display on the main telemetry chart."
     )
+
+    with st.expander("Sensor Glossary & Guide"):
+        for code, info in SENSOR_INFO.items():
+            st.markdown(f"**{info['name']}** (`{info['unit']}`)")
+            st.caption(info['desc'])
 
     st.markdown("---")
     st.caption("ARCH: 2-Layer PyTorch LSTM | SEQ: 50 | DATA: NASA C-MAPSS FD001")
 
-# 6. Header Section with Hover Explanations
+# 6. Header Section with Instant Hover Explanation
 current_row = unit_data[unit_data['time_cycles'] == selected_cycle].iloc[0]
 current_time_str = current_row['timestamp'].strftime("%Y-%m-%d %H:%M UTC")
 mode_label = "MODE: LIVE STREAM" if st.session_state.is_playing else "MODE: MANUAL INSPECTION"
 
 st.markdown(f"""
 <div class="header-container">
-    <div title="Prognostics and Health Management (PHM) system predicting when a jet engine will fail before an actual breakdown occurs.">
-        <p class="header-title">AeroPredict | Turbofan Prognostics & Health Management</p>
+    <div class="tooltip-wrapper">
+        <p class="header-title">AeroPredict | Turbofan Prognostics & Health Management <span class="tooltip-info-tag">?</span></p>
         <p class="header-subtitle">ASSET: ENGINE UNIT-{selected_engine:03d} | MODEL: PYTORCH LSTM | DATASET: NASA FD001</p>
+        <div class="tooltip-box">
+            <b>System Overview:</b><br>
+            This dashboard monitors a commercial turbofan jet engine using 14 active telemetry sensors. A 2-layer LSTM neural network analyzes the last 50 flight cycles to predict Remaining Useful Life (RUL) before failure.
+        </div>
     </div>
-    <div class="telemetry-badge" title="Simulated flight log timestamp (assuming 1 flight cycle every 6 hours) and current playback status.">
-        {mode_label}<br>SIMULATED LOG: {current_time_str}
+    <div class="tooltip-wrapper">
+        <div class="telemetry-badge">
+            {mode_label}<br>SIMULATED LOG: {current_time_str}
+        </div>
+        <div class="tooltip-box" style="left: auto; right: 0;">
+            <b>Flight Timeline Log:</b><br>
+            Maps NASA sequential flight cycles to a realistic flight schedule (1 flight cycle = 6 operational hours). Use Play/Pause in the sidebar to simulate live flight progression.
+        </div>
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -268,30 +345,30 @@ error_diff = predicted_rul - actual_rul
 health_percentage = min(100, int((predicted_rul / 125) * 100))
 est_failure_date = (current_row['timestamp'] + timedelta(hours=6 * predicted_rul)).strftime("%Y-%m-%d %H:%M")
 
-# 8. KPI Metrics Row with Native Hover Tooltips
+# 8. KPI Metrics Row
 col1, col2, col3, col4 = st.columns(4)
 col1.metric(
     "Operational Cycle",
     f"{selected_cycle} / {max_cycle}",
     f"{max_cycle - selected_cycle} cycles remaining",
-    help="Current completed flight cycle compared to the total lifespan of this engine unit."
+    help="Current completed flight cycle out of the engine's total lifespan."
 )
 col2.metric(
     "Predicted RUL",
     f"{predicted_rul} Cycles",
     f"{error_diff:+d} vs Ground Truth",
-    help="Remaining Useful Life estimated by the 2-layer LSTM model based on the last 50 cycles of sensor readings."
+    help="AI-estimated remaining cycles before failure, computed from the 50-step sensor sequence."
 )
 col3.metric(
     "Ground Truth RUL",
     f"{actual_rul} Cycles",
     f"Est. EOL: {est_failure_date}",
-    help="Actual remaining cycles before engine failure recorded in the NASA dataset, alongside the estimated End-of-Life (EOL) date."
+    help="True remaining cycles from the NASA dataset, plus the projected End-of-Life timestamp."
 )
 col4.metric(
     "Health Index",
     f"{health_percentage}%",
-    help="Normalized engine health score (0% to 100%) scaled against the 125-cycle healthy baseline cap."
+    help="Overall engine health score (0-100%) normalized against the 125-cycle healthy baseline."
 )
 
 st.markdown("<br>", unsafe_allow_html=True)
@@ -300,10 +377,17 @@ st.markdown("<br>", unsafe_allow_html=True)
 left_col, right_col = st.columns([1.1, 2])
 
 with left_col:
-    st.markdown(
-        '<span class="section-header" title="Visual cockpit dial showing predicted remaining cycles. Green (50-130): Healthy | Amber (20-50): Plan Maintenance | Red (0-20): Critical Risk.">REMAINING USEFUL LIFE GAUGE</span>',
-        unsafe_allow_html=True
-    )
+    st.markdown("""
+    <div class="tooltip-wrapper">
+        <span class="tooltip-trigger">REMAINING USEFUL LIFE GAUGE <span class="tooltip-info-tag">?</span></span>
+        <div class="tooltip-box">
+            <b>Cockpit RUL Dial (Max 130 Cycles):</b><br>
+            • <b>Green (50–130):</b> Healthy engine operation.<br>
+            • <b>Amber (20–50):</b> Early wear detected; plan maintenance.<br>
+            • <b>Red (0–20):</b> Critical failure threshold; ground aircraft immediately.
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
     
     fig_gauge = go.Figure(go.Indicator(
         mode="gauge+number",
@@ -337,31 +421,56 @@ with left_col:
     )
     st.plotly_chart(fig_gauge, use_container_width=True)
 
-    # Clean Industrial Status Banner with Hover Explanation
+    # Clean Industrial Status Banner with Instant Hover Card
     if predicted_rul < 20:
         st.markdown("""
-        <div class="status-banner" title="Triggered when Predicted RUL drops below 20 cycles. Indicates imminent mechanical failure risk." style="background-color: rgba(220, 38, 38, 0.15); border: 1px solid #dc2626; color: #fca5a5;">
-            STATUS: CRITICAL<br><span style="font-size:12px; font-weight:normal;">Immediate maintenance required. Ground asset.</span>
+        <div class="tooltip-wrapper" style="width: 100%;">
+            <div class="status-banner" style="background-color: rgba(220, 38, 38, 0.15); border: 1px solid #dc2626; color: #fca5a5;">
+                STATUS: CRITICAL<br><span style="font-size:12px; font-weight:normal;">Immediate maintenance required. Ground asset.</span>
+            </div>
+            <div class="tooltip-box" style="width: 100%;">
+                <b>Action Protocol (Critical):</b><br>
+                Predicted RUL has dropped below 20 cycles. High probability of turbine/compressor failure. Remove engine from active flight duty immediately.
+            </div>
         </div>
         """, unsafe_allow_html=True)
     elif predicted_rul < 50:
         st.markdown("""
-        <div class="status-banner" title="Triggered when Predicted RUL is between 20 and 50 cycles. Early degradation signs are visible in sensor trends." style="background-color: rgba(217, 119, 6, 0.15); border: 1px solid #d97706; color: #fcd34d;">
-            STATUS: ADVISORY WARNING<br><span style="font-size:12px; font-weight:normal;">Degradation trend confirmed. Schedule inspection.</span>
+        <div class="tooltip-wrapper" style="width: 100%;">
+            <div class="status-banner" style="background-color: rgba(217, 119, 6, 0.15); border: 1px solid #d97706; color: #fcd34d;">
+                STATUS: ADVISORY WARNING<br><span style="font-size:12px; font-weight:normal;">Degradation trend confirmed. Schedule inspection.</span>
+            </div>
+            <div class="tooltip-box" style="width: 100%;">
+                <b>Action Protocol (Advisory):</b><br>
+                Predicted RUL is between 20 and 50 cycles. Sensor drift confirms progressive wear. Order replacement modules and schedule hangar slot.
+            </div>
         </div>
         """, unsafe_allow_html=True)
     else:
         st.markdown("""
-        <div class="status-banner" title="Triggered when Predicted RUL is above 50 cycles. Engine components are operating within safe thermal and pressure thresholds." style="background-color: rgba(5, 150, 105, 0.15); border: 1px solid #059669; color: #6ee7b7;">
-            STATUS: NOMINAL<br><span style="font-size:12px; font-weight:normal;">All sensor parameters operating within limits.</span>
+        <div class="tooltip-wrapper" style="width: 100%;">
+            <div class="status-banner" style="background-color: rgba(5, 150, 105, 0.15); border: 1px solid #059669; color: #6ee7b7;">
+                STATUS: NOMINAL<br><span style="font-size:12px; font-weight:normal;">All sensor parameters operating within limits.</span>
+            </div>
+            <div class="tooltip-box" style="width: 100%;">
+                <b>Action Protocol (Nominal):</b><br>
+                Predicted RUL exceeds 50 cycles. Thermal and pressure readings are stable. Engine cleared for normal commercial operation.
+            </div>
         </div>
         """, unsafe_allow_html=True)
 
 with right_col:
-    st.markdown(
-        f'<span class="section-header" title="Interactive multi-sensor time-series plot. Hover over any data line to inspect exact sensor measurements at a specific flight cycle.">SENSOR DEGRADATION TELEMETRY — UNIT-{selected_engine:03d}</span>',
-        unsafe_allow_html=True
-    )
+    st.markdown(f"""
+    <div class="tooltip-wrapper">
+        <span class="tooltip-trigger">SENSOR DEGRADATION TELEMETRY — UNIT-{selected_engine:03d} <span class="tooltip-info-tag">?</span></span>
+        <div class="tooltip-box" style="width: 400px;">
+            <b>How to Read This Chart:</b><br>
+            • <b>Horizontal Axis (X):</b> Flight cycles elapsed since engine installation.<br>
+            • <b>Vertical Axis (Y):</b> Physical sensor measurement (Temperature in °R or Pressure in psia).<br>
+            • <b>Hover over any curve</b> to inspect exact readings and physical degradation behavior at that cycle.
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
     
     history_data = unit_data[unit_data['time_cycles'] <= selected_cycle]
     
@@ -370,20 +479,25 @@ with right_col:
         colors = ['#0284c7', '#e11d48', '#d97706', '#7c3aed', '#059669', '#ea580c']
         
         for idx, sensor in enumerate(selected_sensors):
+            s_info = SENSOR_INFO[sensor]
             fig_sensors.add_trace(
                 go.Scatter(
                     x=history_data['time_cycles'],
                     y=history_data[sensor],
                     mode='lines',
-                    name=sensor_labels[sensor],
-                    hovertemplate="<b>Cycle %{x}</b><br>Reading: %{y:.2f}<extra></extra>",
+                    name=s_info['name'],
+                    hovertemplate=(
+                        f"<b>{s_info['name']}</b><br>"
+                        f"Cycle: %{{x}} | Value: %{{y:.2f}} {s_info['unit']}<br>"
+                        f"<i>{s_info['desc']}</i><extra></extra>"
+                    ),
                     line=dict(color=colors[idx % len(colors)], width=2),
                     fill='tozeroy',
                     fillcolor=f"rgba{tuple(int(colors[idx % len(colors)].lstrip('#')[i:i+2], 16) for i in (0, 2, 4)) + (0.06,)}"
                 ),
                 row=idx+1, col=1
             )
-            fig_sensors.update_yaxes(title_text=sensor.upper(), gridcolor="#1f2937", row=idx+1, col=1)
+            fig_sensors.update_yaxes(title_text=f"{sensor.upper()} ({s_info['unit']})", gridcolor="#1f2937", row=idx+1, col=1)
         
         fig_sensors.update_xaxes(title_text="Operational Flight Cycles", gridcolor="#1f2937", row=len(selected_sensors), col=1)
         fig_sensors.update_layout(
@@ -391,7 +505,7 @@ with right_col:
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="#0f172a",
             font=dict(color="#9ca3af", size=12),
-            hovermode="x unified",
+            hovermode="closest",
             showlegend=True,
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
             margin=dict(l=10, r=10, t=30, b=10)
