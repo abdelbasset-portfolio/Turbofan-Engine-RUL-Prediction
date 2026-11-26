@@ -1,20 +1,3 @@
-import sys
-import subprocess
-
-
-def install_and_import(package_name, import_name=None):
-    if import_name is None:
-        import_name = package_name
-    try:
-        __import__(import_name)
-    except ImportError:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", package_name])
-
-
-for pkg, imp in {'streamlit': 'streamlit', 'torch': 'torch', 'pandas': 'pandas', 'joblib': 'joblib',
-                 'matplotlib': 'matplotlib'}.items():
-    install_and_import(pkg, imp)
-
 import os
 import streamlit as st
 import torch
@@ -22,13 +5,60 @@ import torch.nn as nn
 import pandas as pd
 import numpy as np
 import joblib
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
-st.set_page_config(page_title="Predictive Maintenance Dashboard", layout="wide")
+# 1. Page Configuration
+st.set_page_config(
+    page_title="AeroPredict | Jet Engine RUL Monitor",
+    page_icon="✈️",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-st.title(" Predictive Maintenance & Interactive RUL Estimation Dashboard")
-st.write("Real-time Prognostics and Health Management for Turbofan Jet Engines")
+# 2. Custom CSS for Modern Dark Aviation Theme
+st.markdown("""
+<style>
+    .main {
+        background-color: #0e1117;
+    }
+    .stMetric {
+        background-color: #161b22;
+        border: 1px solid #30363d;
+        padding: 15px 20px;
+        border-radius: 12px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+    }
+    .header-box {
+        background: linear-gradient(90deg, #1f2937 0%, #111827 100%);
+        padding: 25px;
+        border-radius: 15px;
+        border-left: 5px solid #38bdf8;
+        margin-bottom: 25px;
+    }
+    .header-title {
+        color: #f8fafc;
+        font-size: 28px;
+        font-weight: 700;
+        margin: 0;
+    }
+    .header-subtitle {
+        color: #94a3b8;
+        font-size: 15px;
+        margin-top: 5px;
+    }
+    .status-card {
+        padding: 20px;
+        border-radius: 12px;
+        text-align: center;
+        font-weight: bold;
+        font-size: 18px;
+        margin-top: 10px;
+    }
+</style>
+""", unsafe_allow_html=True)
 
-
+# 3. Model Architecture
 class RUL_LSTM(nn.Module):
     def __init__(self, input_dim, hidden_dim=64, num_layers=2):
         super(RUL_LSTM, self).__init__()
@@ -44,7 +74,7 @@ class RUL_LSTM(nn.Module):
         out = self.fc2(out)
         return out
 
-
+# 4. Load Data & Pretrained Model
 @st.cache_resource
 def load_resources():
     file_path_csv = "data/train_FD001.csv"
@@ -59,13 +89,12 @@ def load_resources():
         col_names = index_names + setting_names + sensor_names
         df = pd.read_csv(file_path_txt, sep=r'\s+', header=None, names=col_names)
     else:
-        st.error("❌ Data file missing! Make sure 'train_FD001.csv' or 'train_FD001.txt' is in 'data/' folder.")
+        st.error("❌ Dataset missing in 'data/' folder.")
         st.stop()
 
     if 'unit_number' in df.columns:
         df.rename(columns={'unit_number': 'unit_nr'}, inplace=True)
 
-    # Calculate actual RUL for reference display
     if 'RUL' not in df.columns:
         max_cycles = df.groupby('unit_nr')['time_cycles'].max().reset_index()
         max_cycles.columns = ['unit_nr', 'max_time_cycles']
@@ -82,74 +111,183 @@ def load_resources():
     model_path = "models/lstm_model.pth"
 
     if not os.path.exists(scaler_path) or not os.path.exists(model_path):
-        st.error("❌ Trained model or scaler missing! Run 2_data_preprocessing.py and 3_model_training.py first.")
+        st.error("❌ Trained model or scaler missing in 'models/' folder.")
         st.stop()
 
     scaler = joblib.load(scaler_path)
-
     model = RUL_LSTM(input_dim=len(features))
-    model.load_state_dict(torch.load(model_path))
+    model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
     model.eval()
 
     return df, features, scaler, model
 
-
 df, features, scaler, model = load_resources()
 
-# Sidebar Engine Selector
-st.sidebar.header(" Control Panel")
-available_units = sorted(df['unit_nr'].unique())
-selected_engine = st.sidebar.selectbox("Choose Engine Unit Number:", available_units)
+# 5. Header Banner
+st.markdown("""
+<div class="header-box">
+    <p class="header-title">✈️ AeroPredict | Turbofan Jet Engine Health Monitor</p>
+    <p class="header-subtitle">Real-Time Remaining Useful Life (RUL) Prognostics powered by PyTorch LSTM & NASA C-MAPSS Telemetry</p>
+</div>
+""", unsafe_allow_html=True)
 
-# Filter Data for Selected Engine
-unit_data = df[df['unit_nr'] == selected_engine].copy().sort_values('time_cycles')
-unit_data_scaled = unit_data.copy()
-unit_data_scaled[features] = scaler.transform(unit_data[features])
+# 6. Sidebar Control Center
+with st.sidebar:
+    st.image("https://img.icons8.com/fluency/96/jet-engine.png", width=70)
+    st.markdown("### 🎛️ Flight Telemetry Controls")
+    st.markdown("---")
+    
+    available_units = sorted(df['unit_nr'].unique())
+    selected_engine = st.selectbox("Select Turbofan Engine ID:", available_units, format_func=lambda x: f"Engine Unit #{x:03d}")
 
-max_cycle = int(unit_data['time_cycles'].max())
+    unit_data = df[df['unit_nr'] == selected_engine].copy().sort_values('time_cycles')
+    unit_data_scaled = unit_data.copy()
+    unit_data_scaled[features] = scaler.transform(unit_data[features])
+    max_cycle = int(unit_data['time_cycles'].max())
 
-# Operational Cycle Time Slider
-st.sidebar.markdown("---")
-selected_cycle = st.sidebar.slider(
-    "Select Operational Cycle (Time Step):",
-    min_value=50,
-    max_value=max_cycle,
-    value=max_cycle,
-    step=1
-)
-
-st.markdown("---")
-st.subheader(f" Engine Unit #{selected_engine} Analysis at Cycle {selected_cycle} / {max_cycle}")
-
-# Sensor Chart up to Selected Cycle
-history_data = unit_data[unit_data['time_cycles'] <= selected_cycle]
-st.line_chart(history_data[['time_cycles', 's_2', 's_3', 's_4', 's_11']].set_index('time_cycles'))
-
-# Extract sequence of 50 cycles ending at selected_cycle
-sub_data_scaled = unit_data_scaled[unit_data_scaled['time_cycles'] <= selected_cycle]
-
-if len(sub_data_scaled) >= 50:
-    sequence_input = sub_data_scaled[features].values[-50:]
-    input_tensor = torch.tensor(sequence_input, dtype=torch.float32).unsqueeze(0)
-
-    with torch.no_grad():
-        predicted_rul = model(input_tensor).item()
-
-    actual_rul = unit_data[unit_data['time_cycles'] == selected_cycle]['RUL'].values[0]
+    selected_cycle = st.slider(
+        "Simulate Flight Cycle (Time Step):",
+        min_value=50,
+        max_value=max_cycle,
+        value=min(140, max_cycle),
+        step=1,
+        help="Slide to travel back and forth in the engine's operational history."
+    )
 
     st.markdown("---")
-    st.subheader(" Predictive Maintenance Diagnosis")
-    col1, col2, col3 = st.columns(3)
+    st.markdown("### 📡 Sensor Telemetry Select")
+    sensor_labels = {
+        's_2': 'LPC Outlet Temp (s_2)',
+        's_3': 'HPC Outlet Temp (s_3)',
+        's_4': 'LPT Outlet Temp (s_4)',
+        's_11': 'HPC Static Pressure (s_11)',
+        's_14': 'Core Speed (s_14)',
+        's_15': 'Bypass Ratio (s_15)'
+    }
+    selected_sensors = st.multiselect(
+        "Active Sensors to Plot:",
+        options=list(sensor_labels.keys()),
+        default=['s_3', 's_4', 's_11'],
+        format_func=lambda x: sensor_labels[x]
+    )
 
-    col1.metric("Predicted RUL", f"{int(predicted_rul)} Cycles")
-    col2.metric("Actual Ground Truth RUL", f"{int(actual_rul)} Cycles")
+    st.markdown("---")
+    st.caption("Model Architecture: 2-Layer LSTM (Window: 50 Cycles) | Dataset: NASA FD001")
 
+# 7. Inference Calculation
+sub_data_scaled = unit_data_scaled[unit_data_scaled['time_cycles'] <= selected_cycle]
+sequence_input = sub_data_scaled[features].values[-50:]
+input_tensor = torch.tensor(sequence_input, dtype=torch.float32).unsqueeze(0)
+
+with torch.no_grad():
+    predicted_rul = max(0, int(round(model(input_tensor).item())))
+
+actual_rul = int(unit_data[unit_data['time_cycles'] == selected_cycle]['RUL'].values[0])
+error_diff = predicted_rul - actual_rul
+health_percentage = min(100, int((predicted_rul / 125) * 100))
+
+# 8. Top KPI Metrics Row
+col1, col2, col3, col4 = st.columns(4)
+col1.metric("Current Flight Cycle", f"{selected_cycle} / {max_cycle}", f"{max_cycle - selected_cycle} to Failure")
+col2.metric("🤖 AI Predicted RUL", f"{predicted_rul} Cycles", f"{error_diff:+d} vs Actual")
+col3.metric("🎯 Ground Truth RUL", f"{actual_rul} Cycles")
+col4.metric("❤️ Estimated Engine Health", f"{health_percentage}%")
+
+st.markdown("<br>", unsafe_allow_html=True)
+
+# 9. Main Dashboard Layout: Gauge + Status on Left, Interactive Charts on Right
+left_col, right_col = st.columns([1.1, 2])
+
+with left_col:
+    st.markdown("#### 🧭 RUL Cockpit Gauge")
+    
+    # Plotly Aviation Gauge
+    fig_gauge = go.Figure(go.Indicator(
+        mode="gauge+number",
+        value=predicted_rul,
+        domain={'x': [0, 1], 'y': [0, 1]},
+        title={'text': "Remaining Cycles", 'font': {'size': 18, 'color': '#cbd5e1'}},
+        number={'font': {'size': 46, 'color': '#ffffff'}},
+        gauge={
+            'axis': {'range': [0, 130], 'tickwidth': 1, 'tickcolor': "#94a3b8"},
+            'bar': {'color': "#38bdf8"},
+            'bgcolor': "#1e293b",
+            'borderwidth': 2,
+            'bordercolor': "#334155",
+            'steps': [
+                {'range': [0, 20], 'color': 'rgba(239, 68, 68, 0.45)'},
+                {'range': [20, 50], 'color': 'rgba(245, 158, 11, 0.45)'},
+                {'range': [50, 130], 'color': 'rgba(16, 185, 129, 0.35)'}
+            ],
+            'threshold': {
+                'line': {'color': "#ef4444", 'width': 4},
+                'thickness': 0.75,
+                'value': 20
+            }
+        }
+    ))
+    fig_gauge.update_layout(
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        height=290,
+        margin=dict(l=20, r=20, t=40, b=10)
+    )
+    st.plotly_chart(fig_gauge, use_container_width=True)
+
+    # Dynamic Status Alert Card
     if predicted_rul < 20:
-        col3.error("🚨 CRITICAL: Maintenance Required Immediately!")
+        st.markdown("""
+        <div class="status-card" style="background-color: rgba(239, 68, 68, 0.2); border: 1px solid #ef4444; color: #fca5a5;">
+            🚨 CRITICAL ALERT<br><span style="font-size:14px; font-weight:normal;">Ground aircraft immediately & schedule overhaul.</span>
+        </div>
+        """, unsafe_allow_html=True)
     elif predicted_rul < 50:
-        col3.warning("⚠️ WARNING: Schedule Inspection Soon")
+        st.markdown("""
+        <div class="status-card" style="background-color: rgba(245, 158, 11, 0.2); border: 1px solid #f59e0b; color: #fcd34d;">
+            ⚠️ MAINTENANCE WARNING<br><span style="font-size:14px; font-weight:normal;">Degradation detected. Prepare spare parts.</span>
+        </div>
+        """, unsafe_allow_html=True)
     else:
-        col3.success(" HEALTHY: Engine Operating Normally")
-else:
-    st.info("Insufficient sequence length for prediction at this point (Requires at least 50 operational cycles).")
-######(C:\Users\hp\AppData\Local\Python\bin\python.exe -m streamlit run 5_dashboard_app.py)
+        st.markdown("""
+        <div class="status-card" style="background-color: rgba(16, 185, 129, 0.2); border: 1px solid #10b981; color: #6ee7b7;">
+            ✅ OPTIMAL CONDITION<br><span style="font-size:14px; font-weight:normal;">All turbine parameters within nominal limits.</span>
+        </div>
+        """, unsafe_allow_html=True)
+
+with right_col:
+    st.markdown(f"#### 📈 Live Sensor Degradation Telemetry (Engine #{selected_engine:03d})")
+    
+    history_data = unit_data[unit_data['time_cycles'] <= selected_cycle]
+    
+    if selected_sensors:
+        fig_sensors = make_subplots(rows=len(selected_sensors), cols=1, shared_xaxes=True, vertical_spacing=0.06)
+        colors = ['#38bdf8', '#f43f5e', '#fbbf24', '#a855f7', '#10b981', '#fb923c']
+        
+        for idx, sensor in enumerate(selected_sensors):
+            fig_sensors.add_trace(
+                go.Scatter(
+                    x=history_data['time_cycles'],
+                    y=history_data[sensor],
+                    mode='lines',
+                    name=sensor_labels[sensor],
+                    line=dict(color=colors[idx % len(colors)], width=2.5),
+                    fill='tozeroy',
+                    fillcolor=f"rgba{tuple(int(colors[idx % len(colors)].lstrip('#')[i:i+2], 16) for i in (0, 2, 4)) + (0.08,)}"
+                ),
+                row=idx+1, col=1
+            )
+            fig_sensors.update_yaxes(title_text=sensor, gridcolor="#1e293b", row=idx+1, col=1)
+        
+        fig_sensors.update_xaxes(title_text="Operational Flight Cycles", gridcolor="#1e293b", row=len(selected_sensors), col=1)
+        fig_sensors.update_layout(
+            height=430,
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="#111827",
+            font=dict(color="#cbd5e1"),
+            showlegend=True,
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            margin=dict(l=10, r=10, t=30, b=10)
+        )
+        st.plotly_chart(fig_sensors, use_container_width=True)
+    else:
+        st.info("Please select at least one sensor from the sidebar to visualize telemetry.")
