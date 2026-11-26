@@ -25,7 +25,7 @@ import joblib
 
 st.set_page_config(page_title="Predictive Maintenance Dashboard", layout="wide")
 
-st.title("✈️ Predictive Maintenance & Interactive RUL Estimation Dashboard")
+st.title(" Predictive Maintenance & Interactive RUL Estimation Dashboard")
 st.write("Real-time Prognostics and Health Management for Turbofan Jet Engines")
 
 
@@ -97,7 +97,7 @@ def load_resources():
 df, features, scaler, model = load_resources()
 
 # Sidebar Engine Selector
-st.sidebar.header("⚙️ Control Panel")
+st.sidebar.header(" Control Panel")
 available_units = sorted(df['unit_nr'].unique())
 selected_engine = st.sidebar.selectbox("Choose Engine Unit Number:", available_units)
 
@@ -119,7 +119,7 @@ selected_cycle = st.sidebar.slider(
 )
 
 st.markdown("---")
-st.subheader(f"📊 Engine Unit #{selected_engine} Analysis at Cycle {selected_cycle} / {max_cycle}")
+st.subheader(f" Engine Unit #{selected_engine} Analysis at Cycle {selected_cycle} / {max_cycle}")
 
 # Sensor Chart up to Selected Cycle
 history_data = unit_data[unit_data['time_cycles'] <= selected_cycle]
@@ -149,7 +149,7 @@ if len(sub_data_scaled) >= 50:
     elif predicted_rul < 50:
         col3.warning("⚠️ WARNING: Schedule Inspection Soon")
     else:
-        col3.success("✅ HEALTHY: Engine Operating Normally")
+        col3.success(" HEALTHY: Engine Operating Normally")
 else:
     st.info("Insufficient sequence length for prediction at this point (Requires at least 50 operational cycles).")
 ######(C:\Users\hp\AppData\Local\Python\bin\python.exe -m streamlit run 5_dashboard_app.py)
