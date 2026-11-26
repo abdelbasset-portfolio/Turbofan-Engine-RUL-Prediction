@@ -191,7 +191,7 @@ with st.sidebar:
     sim_speed = st.select_slider(
         "Simulation Step Interval (sec)",
         options=[0.5, 1.0, 1.5, 2.0],
-        value=1.2
+        value=1.0
     )
 
     st.markdown("---")
