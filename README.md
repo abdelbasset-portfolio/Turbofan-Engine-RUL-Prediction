@@ -21,18 +21,57 @@ Unplanned jet engine failures lead to severe safety risks and costly operational
 
 ## Repository Structure
 
-```text
-Turbofan-Engine-RUL-Prediction/
-├── data/
-│   └── train_FD001.csv          # NASA C-MAPSS FD001 multivariate sensor dataset
-├── models/
-│   ├── lstm_model.pth           # Pre-trained PyTorch 2-layer LSTM weights
-│   └── scaler.pkl               # Fitted MinMaxScaler for feature normalization
-├── 1_data_loader_eda.py         # Data ingestion, schema validation, and RUL calculation
-├── 2_data_preprocessing.py      # Feature selection, MinMax scaling, and 3D sequence generation
-├── 3_model_training.py          # PyTorch LSTM architecture definition and training loop
-├── 4_evaluation.py              # Model performance evaluation (RMSE, MAE, R²) and diagnostics
-├── 5_dashboard_app.py           # Interactive AeroPredict Streamlit & Plotly web application
-├── run_all.py                   # End-to-end pipeline automation script
-├── requirements.txt             # Lightweight CPU dependencies for cloud deployment
-└── README.md                    # Project documentation
+    Turbofan-Engine-RUL-Prediction/
+    ├── data/
+    │   └── train_FD001.csv          # NASA C-MAPSS FD001 multivariate sensor dataset
+    ├── models/
+    │   ├── lstm_model.pth           # Pre-trained PyTorch 2-layer LSTM weights
+    │   └── scaler.pkl               # Fitted MinMaxScaler for feature normalization
+    ├── 1_data_loader_eda.py         # Data ingestion, schema validation, and RUL calculation
+    ├── 2_data_preprocessing.py      # Feature selection, MinMax scaling, and 3D sequence generation
+    ├── 3_model_training.py          # PyTorch LSTM architecture definition and training loop
+    ├── 4_evaluation.py              # Model performance evaluation (RMSE, MAE, R²) and diagnostics
+    ├── 5_dashboard_app.py           # Interactive AeroPredict Streamlit & Plotly web application
+    ├── run_all.py                   # End-to-end pipeline automation script
+    ├── requirements.txt             # Lightweight CPU dependencies for cloud deployment
+    └── README.md                    # Project documentation
+
+---
+
+## Model Architecture & Methodology
+
+1. **Feature Selection:** Out of 21 raw sensors, constant/zero-variance channels are removed, retaining 14 high-variance physical sensors alongside 3 operational settings.
+2. **Sequence Framing:** Time-series readings for each engine unit are normalized using `MinMaxScaler` and structured into overlapping 3D windows of shape `(samples, 50, features)`.
+3. **Neural Network (`RUL_LSTM`):**
+   * **Input Layer:** 17 normalized telemetry features over 50 time steps.
+   * **Recurrent Layers:** 2 stacked LSTM layers (`hidden_dim=64`, `dropout=0.2`).
+   * **Regression Head:** Fully connected layer (`64 -> 32` with ReLU activation) followed by a linear output layer (`32 -> 1`) predicting remaining cycles.
+
+---
+
+## Quickstart & Local Execution
+
+### 1. Clone the Repository
+
+    git clone https://github.com/<your-username>/Turbofan-Engine-RUL-Prediction.git
+    cd Turbofan-Engine-RUL-Prediction
+
+### 2. Install Dependencies
+
+    pip install -r requirements.txt
+
+### 3. Launch the Interactive Dashboard
+To run the web application immediately using the pre-trained model in `models/`:
+
+    streamlit run 5_dashboard_app.py
+
+### 4. Run the Full Training Pipeline (Optional)
+To re-run preprocessing, model training, and evaluation from scratch before launching the app:
+
+    python run_all.py
+
+---
+
+## Dataset Reference
+* **Dataset:** NASA Turbofan Jet Engine Simulation Data (`C-MAPSS FD001`), provided by the NASA Ames Prognostics Data Repository.
+* **Fleet Scope:** 100 independent turbofan engine units monitored from initial healthy operation until system failure under a single operating condition (sea level).
