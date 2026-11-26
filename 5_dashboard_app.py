@@ -1,4 +1,6 @@
 import os
+import time
+from datetime import datetime, timedelta
 import streamlit as st
 import torch
 import torch.nn as nn
@@ -10,13 +12,13 @@ from plotly.subplots import make_subplots
 
 # 1. Page Configuration
 st.set_page_config(
-    page_title="AeroPredict | Jet Engine RUL Monitor",
+    page_title="AeroPredict | Live Engine Telemetry",
     page_icon="✈️",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# 2. Custom CSS for Modern Dark Aviation Theme
+# 2. Custom CSS for Modern Aviation Command Center
 st.markdown("""
 <style>
     .main {
@@ -30,29 +32,42 @@ st.markdown("""
         box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
     }
     .header-box {
-        background: linear-gradient(90deg, #1f2937 0%, #111827 100%);
-        padding: 25px;
+        background: linear-gradient(90deg, #1e293b 0%, #0f172a 100%);
+        padding: 22px 28px;
         border-radius: 15px;
         border-left: 5px solid #38bdf8;
-        margin-bottom: 25px;
+        margin-bottom: 20px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
     }
     .header-title {
         color: #f8fafc;
-        font-size: 28px;
+        font-size: 26px;
         font-weight: 700;
         margin: 0;
     }
     .header-subtitle {
         color: #94a3b8;
-        font-size: 15px;
-        margin-top: 5px;
+        font-size: 14px;
+        margin-top: 4px;
+    }
+    .live-badge {
+        background-color: rgba(16, 185, 129, 0.15);
+        border: 1px solid #10b981;
+        color: #34d399;
+        padding: 8px 16px;
+        border-radius: 20px;
+        font-family: monospace;
+        font-size: 14px;
+        font-weight: bold;
     }
     .status-card {
-        padding: 20px;
+        padding: 18px;
         border-radius: 12px;
         text-align: center;
         font-weight: bold;
-        font-size: 18px;
+        font-size: 17px;
         margin-top: 10px;
     }
 </style>
@@ -123,39 +138,57 @@ def load_resources():
 
 df, features, scaler, model = load_resources()
 
-# 5. Header Banner
-st.markdown("""
-<div class="header-box">
-    <p class="header-title">✈️ AeroPredict | Turbofan Jet Engine Health Monitor</p>
-    <p class="header-subtitle">Real-Time Remaining Useful Life (RUL) Prognostics powered by PyTorch LSTM & NASA C-MAPSS Telemetry</p>
-</div>
-""", unsafe_allow_html=True)
-
-# 6. Sidebar Control Center
+# 5. Sidebar Control Center & Time-Travel State
 with st.sidebar:
-    st.image("https://img.icons8.com/fluency/96/jet-engine.png", width=70)
+    st.image("https://img.icons8.com/fluency/96/jet-engine.png", width=65)
     st.markdown("### 🎛️ Flight Telemetry Controls")
     st.markdown("---")
     
     available_units = sorted(df['unit_nr'].unique())
-    selected_engine = st.selectbox("Select Turbofan Engine ID:", available_units, format_func=lambda x: f"Engine Unit #{x:03d}")
-
-    unit_data = df[df['unit_nr'] == selected_engine].copy().sort_values('time_cycles')
-    unit_data_scaled = unit_data.copy()
-    unit_data_scaled[features] = scaler.transform(unit_data[features])
-    max_cycle = int(unit_data['time_cycles'].max())
-
-    selected_cycle = st.slider(
-        "Simulate Flight Cycle (Time Step):",
-        min_value=50,
-        max_value=max_cycle,
-        value=min(140, max_cycle),
-        step=1,
-        help="Slide to travel back and forth in the engine's operational history."
+    selected_engine = st.selectbox(
+        "Select Turbofan Engine ID:",
+        available_units,
+        format_func=lambda x: f"Engine Unit #{x:03d}"
     )
 
+    unit_data = df[df['unit_nr'] == selected_engine].copy().sort_values('time_cycles')
+    max_cycle = int(unit_data['time_cycles'].max())
+
+    # Generate realistic timestamps (1 flight cycle every 6 hours ending at current date)
+    now = datetime.now().replace(minute=0, second=0, microsecond=0)
+    unit_data['timestamp'] = [now - timedelta(hours=6 * (max_cycle - c)) for c in unit_data['time_cycles']]
+
+    # Initialize session state for cycle navigation
+    if 'current_cycle' not in st.session_state or st.session_state.get('last_engine') != selected_engine:
+        st.session_state.current_cycle = min(100, max_cycle)
+        st.session_state.last_engine = selected_engine
+        st.session_state.is_playing = False
+
+    st.markdown("### ⏱️ Time-Travel & Live Simulation")
+    
+    # Rewind / Play-Pause / Fast-Forward Buttons
+    b1, b2, b3 = st.columns(3)
+    if b1.button("⏪ -10"):
+        st.session_state.current_cycle = max(50, st.session_state.current_cycle - 10)
+        st.session_state.is_playing = False
+    if b2.button("⏯️ Live" if not st.session_state.is_playing else "⏸️ Pause"):
+        st.session_state.is_playing = not st.session_state.is_playing
+    if b3.button("⏩ +10"):
+        st.session_state.current_cycle = min(max_cycle, st.session_state.current_cycle + 10)
+        st.session_state.is_playing = False
+
+    # Time Slider synced with session state
+    selected_cycle = st.slider(
+        "Flight Timeline (Cycle):",
+        min_value=50,
+        max_value=max_cycle,
+        value=st.session_state.current_cycle,
+        step=1
+    )
+    st.session_state.current_cycle = selected_cycle
+
     st.markdown("---")
-    st.markdown("### 📡 Sensor Telemetry Select")
+    st.markdown("### 📡 Active Telemetry Sensors")
     sensor_labels = {
         's_2': 'LPC Outlet Temp (s_2)',
         's_3': 'HPC Outlet Temp (s_3)',
@@ -165,16 +198,33 @@ with st.sidebar:
         's_15': 'Bypass Ratio (s_15)'
     }
     selected_sensors = st.multiselect(
-        "Active Sensors to Plot:",
+        "Select Sensors to Monitor:",
         options=list(sensor_labels.keys()),
         default=['s_3', 's_4', 's_11'],
         format_func=lambda x: sensor_labels[x]
     )
 
-    st.markdown("---")
-    st.caption("Model Architecture: 2-Layer LSTM (Window: 50 Cycles) | Dataset: NASA FD001")
+# 6. Current Timestamp & Header Banner
+current_row = unit_data[unit_data['time_cycles'] == selected_cycle].iloc[0]
+current_time_str = current_row['timestamp'].strftime("%Y-%m-%d | %H:%M UTC")
+status_indicator = "🟢 LIVE TELEMETRY STREAM" if st.session_state.is_playing else "🔵 HISTORICAL REPLAY MODE"
+
+st.markdown(f"""
+<div class="header-box">
+    <div>
+        <p class="header-title">✈️ AeroPredict | Turbofan Engine #{selected_engine:03d}</p>
+        <p class="header-subtitle">Real-Time Remaining Useful Life (RUL) Prognostics • NASA C-MAPSS Telemetry</p>
+    </div>
+    <div class="live-badge">
+        {status_indicator}<br>🕒 {current_time_str}
+    </div>
+</div>
+""", unsafe_allow_html=True)
 
 # 7. Inference Calculation
+unit_data_scaled = unit_data.copy()
+unit_data_scaled[features] = scaler.transform(unit_data[features])
+
 sub_data_scaled = unit_data_scaled[unit_data_scaled['time_cycles'] <= selected_cycle]
 sequence_input = sub_data_scaled[features].values[-50:]
 input_tensor = torch.tensor(sequence_input, dtype=torch.float32).unsqueeze(0)
@@ -182,31 +232,31 @@ input_tensor = torch.tensor(sequence_input, dtype=torch.float32).unsqueeze(0)
 with torch.no_grad():
     predicted_rul = max(0, int(round(model(input_tensor).item())))
 
-actual_rul = int(unit_data[unit_data['time_cycles'] == selected_cycle]['RUL'].values[0])
+actual_rul = int(current_row['RUL'])
 error_diff = predicted_rul - actual_rul
 health_percentage = min(100, int((predicted_rul / 125) * 100))
+est_failure_date = (current_row['timestamp'] + timedelta(hours=6 * predicted_rul)).strftime("%Y-%m-%d %H:%M")
 
 # 8. Top KPI Metrics Row
 col1, col2, col3, col4 = st.columns(4)
-col1.metric("Current Flight Cycle", f"{selected_cycle} / {max_cycle}", f"{max_cycle - selected_cycle} to Failure")
+col1.metric("Flight Cycle & Time", f"Cycle {selected_cycle} / {max_cycle}", current_row['timestamp'].strftime("%b %d, %H:%M"))
 col2.metric("🤖 AI Predicted RUL", f"{predicted_rul} Cycles", f"{error_diff:+d} vs Actual")
-col3.metric("🎯 Ground Truth RUL", f"{actual_rul} Cycles")
-col4.metric("❤️ Estimated Engine Health", f"{health_percentage}%")
+col3.metric("📅 Est. Failure Date", est_failure_date, f"Actual RUL: {actual_rul} cycles")
+col4.metric("❤️ Engine Health Index", f"{health_percentage}%")
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# 9. Main Dashboard Layout: Gauge + Status on Left, Interactive Charts on Right
+# 9. Main Dashboard Layout
 left_col, right_col = st.columns([1.1, 2])
 
 with left_col:
-    st.markdown("#### 🧭 RUL Cockpit Gauge")
+    st.markdown("#### 🧭 RUL Cockpit Gauge (Max: 130 Cycles)")
     
-    # Plotly Aviation Gauge
     fig_gauge = go.Figure(go.Indicator(
         mode="gauge+number",
         value=predicted_rul,
         domain={'x': [0, 1], 'y': [0, 1]},
-        title={'text': "Remaining Cycles", 'font': {'size': 18, 'color': '#cbd5e1'}},
+        title={'text': "Remaining Cycles", 'font': {'size': 16, 'color': '#cbd5e1'}},
         number={'font': {'size': 46, 'color': '#ffffff'}},
         gauge={
             'axis': {'range': [0, 130], 'tickwidth': 1, 'tickcolor': "#94a3b8"},
@@ -229,8 +279,8 @@ with left_col:
     fig_gauge.update_layout(
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
-        height=290,
-        margin=dict(l=20, r=20, t=40, b=10)
+        height=280,
+        margin=dict(l=20, r=20, t=35, b=10)
     )
     st.plotly_chart(fig_gauge, use_container_width=True)
 
@@ -238,24 +288,24 @@ with left_col:
     if predicted_rul < 20:
         st.markdown("""
         <div class="status-card" style="background-color: rgba(239, 68, 68, 0.2); border: 1px solid #ef4444; color: #fca5a5;">
-            🚨 CRITICAL ALERT<br><span style="font-size:14px; font-weight:normal;">Ground aircraft immediately & schedule overhaul.</span>
+            🚨 CRITICAL ALERT<br><span style="font-size:13px; font-weight:normal;">Ground aircraft immediately & schedule overhaul.</span>
         </div>
         """, unsafe_allow_html=True)
     elif predicted_rul < 50:
         st.markdown("""
         <div class="status-card" style="background-color: rgba(245, 158, 11, 0.2); border: 1px solid #f59e0b; color: #fcd34d;">
-            ⚠️ MAINTENANCE WARNING<br><span style="font-size:14px; font-weight:normal;">Degradation detected. Prepare spare parts.</span>
+            ⚠️ MAINTENANCE WARNING<br><span style="font-size:13px; font-weight:normal;">Degradation detected. Prepare spare parts.</span>
         </div>
         """, unsafe_allow_html=True)
     else:
         st.markdown("""
         <div class="status-card" style="background-color: rgba(16, 185, 129, 0.2); border: 1px solid #10b981; color: #6ee7b7;">
-            ✅ OPTIMAL CONDITION<br><span style="font-size:14px; font-weight:normal;">All turbine parameters within nominal limits.</span>
+            ✅ OPTIMAL CONDITION<br><span style="font-size:13px; font-weight:normal;">All turbine parameters within nominal limits.</span>
         </div>
         """, unsafe_allow_html=True)
 
 with right_col:
-    st.markdown(f"#### 📈 Live Sensor Degradation Telemetry (Engine #{selected_engine:03d})")
+    st.markdown(f"#### 📈 Real-Time Sensor Telemetry Stream (Up to {current_time_str})")
     
     history_data = unit_data[unit_data['time_cycles'] <= selected_cycle]
     
@@ -266,7 +316,7 @@ with right_col:
         for idx, sensor in enumerate(selected_sensors):
             fig_sensors.add_trace(
                 go.Scatter(
-                    x=history_data['time_cycles'],
+                    x=history_data['timestamp'],
                     y=history_data[sensor],
                     mode='lines',
                     name=sensor_labels[sensor],
@@ -278,9 +328,9 @@ with right_col:
             )
             fig_sensors.update_yaxes(title_text=sensor, gridcolor="#1e293b", row=idx+1, col=1)
         
-        fig_sensors.update_xaxes(title_text="Operational Flight Cycles", gridcolor="#1e293b", row=len(selected_sensors), col=1)
+        fig_sensors.update_xaxes(title_text="Flight Timeline (Date & Time)", gridcolor="#1e293b", row=len(selected_sensors), col=1)
         fig_sensors.update_layout(
-            height=430,
+            height=420,
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="#111827",
             font=dict(color="#cbd5e1"),
@@ -291,3 +341,13 @@ with right_col:
         st.plotly_chart(fig_sensors, use_container_width=True)
     else:
         st.info("Please select at least one sensor from the sidebar to visualize telemetry.")
+
+# 10. Auto-Play Live Stream Loop
+if st.session_state.is_playing:
+    if st.session_state.current_cycle < max_cycle:
+        time.sleep(0.6)
+        st.session_state.current_cycle += 1
+        st.rerun()
+    else:
+        st.session_state.is_playing = False
+        st.rerun()
