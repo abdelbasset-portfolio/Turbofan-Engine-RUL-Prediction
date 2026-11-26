@@ -138,7 +138,7 @@ if len(sub_data_scaled) >= 50:
     actual_rul = unit_data[unit_data['time_cycles'] == selected_cycle]['RUL'].values[0]
 
     st.markdown("---")
-    st.subheader("🔮 Predictive Maintenance Diagnosis")
+    st.subheader(" Predictive Maintenance Diagnosis")
     col1, col2, col3 = st.columns(3)
 
     col1.metric("Predicted RUL", f"{int(predicted_rul)} Cycles")
