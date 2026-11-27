@@ -53,7 +53,7 @@ Unplanned jet engine failures lead to severe safety risks and costly operational
 
 ### 1. Clone the Repository
 
-    git clone https://github.com/<your-username>/Turbofan-Engine-RUL-Prediction.git
+    git clone https://github.com/abdelbasset-portfolio/Turbofan-Engine-RUL-Prediction.git
     cd Turbofan-Engine-RUL-Prediction
 
 ### 2. Install Dependencies
